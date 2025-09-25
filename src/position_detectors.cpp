@@ -49,6 +49,8 @@ Bitboard Position::AttacksFrom(const Square sq) const {
         return GenerateMoves.Queen(Occupied(), sq);
     case King:
         return GenerateMoves.King(sq);
+    default:
+        break;
     }
     return 0;
 }

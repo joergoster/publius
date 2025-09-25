@@ -21,7 +21,7 @@ void Think(Position* pos) {
 
 void Iterate(Position* pos) {
 
-    int val = 0, curVal = 0;
+    int curVal = 0;
 
     for (Timer.rootDepth = 1; Timer.rootDepth <= Timer.GetData(maxDepth); Timer.rootDepth++) {
 
@@ -42,8 +42,6 @@ void Iterate(Position* pos) {
             if (Timer.rootDepth >= 2 * expectedMateDepth)
                 break;
         }
-
-        val = curVal;
 
         // For go infinite, where we have to wait
         // for stop command before emitting a move

@@ -22,5 +22,5 @@ public:
     void ScoreQuiet(Position* pos);
 
     // Get the lat index of the move list
-    [[nodiscard]] int MoveList::GetLength() { return ind; }
+    [[nodiscard]] int GetLength() { return ind; }
 };

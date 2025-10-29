@@ -29,9 +29,11 @@ void Think(Position* pos) {
     // table is returned.
     if (Pv.GetBestMove() == 0) {
         Move move; int unused;
-        TT.Retrieve(pos->boardHash, &move, &unused, &unused, -Infinity, Infinity, 0, 0);
-        if (IsPseudoLegal(pos, move))
-            Pv.EmergencyOverwrite(move);
+
+        if (TT.Retrieve(pos->boardHash, &move, &unused, &unused, -Infinity, Infinity, 0, 0)) {
+            if (IsPseudoLegal(pos, move))
+                Pv.EmergencyOverwrite(move);
+        }
     }
 }
 

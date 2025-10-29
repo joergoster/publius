@@ -108,6 +108,8 @@ Move MovePicker::NextMove(Position* pos) {
                     currentMoveStage = stageFirstKiller;
                     return killer1;
                 }
+
+                [[fallthrough]];
             }
 
             case stageSecondKiller:
@@ -117,6 +119,8 @@ Move MovePicker::NextMove(Position* pos) {
                     currentMoveStage = stageSecondKiller;
                     return killer2;
                 }
+
+                [[fallthrough]];
             }
 
             case stageGenQuiet:
@@ -131,6 +135,8 @@ Move MovePicker::NextMove(Position* pos) {
                 stage = stageReturnQuiet;
                 currentMoveStage = stageReturnQuiet;
                 break;
+
+                [[fallthrough]];
             }
 
             case stageReturnQuiet:
@@ -150,6 +156,8 @@ Move MovePicker::NextMove(Position* pos) {
                       ? stageEnd
                       : stagePrepareBad;
                 break;
+
+                [[fallthrough]];
             }
 
             case stagePrepareBad:
@@ -160,6 +168,8 @@ Move MovePicker::NextMove(Position* pos) {
                 badNoisyLength = badNoisyList.GetLength();
                 badNoisyCnt = 0;
                 break;
+
+                [[fallthrough]];
             }
 
             case stageReturnBad:
@@ -173,6 +183,8 @@ Move MovePicker::NextMove(Position* pos) {
                 }
                 stage = stageEnd;
                 break;
+
+                [[fallthrough]];
             }
 
             case stageEnd: 

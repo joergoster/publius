@@ -39,7 +39,7 @@ void Iterate(Position* pos, SearchContext* sc) {
 
     int curVal = 0;
 
-    for (Timer.rootDepth = 1; Timer.rootDepth <= Timer.GetData(maxDepth); Timer.rootDepth++) {
+    for (Timer.rootDepth = 1; Timer.rootDepth <= int(Timer.GetData(maxDepth)); Timer.rootDepth++) {
 
         Timer.RefreshStats();
         PrintRootInfo(); // uses timer stats

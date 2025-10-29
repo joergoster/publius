@@ -121,6 +121,7 @@ int Search(Position* pos, SearchContext* sc, int ply, int alpha, int beta, int d
     //  try it first.
 
     bool foundTTrecord = false;
+    hashFlag = 0;
 
     if (TT.Retrieve(pos->boardHash, &ttMove, &score, &hashFlag, alpha, beta, depth, ply)) {
 

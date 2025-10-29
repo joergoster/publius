@@ -53,8 +53,9 @@ Bitboard Position::AttacksFrom(const Square sq) const {
         return GenerateMoves.Queen(Occupied(), sq);
     case King:
         return GenerateMoves.King(sq);
+    default:
+        return 0;
     }
-    return 0;
 }
 
 // Detect whether a move gives check

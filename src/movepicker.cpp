@@ -35,7 +35,7 @@ void MovePicker::Init(Mode mode, Move ttMove, Move firstKiller, Move secondKille
 }
 
 // Emits the next move
-Move MovePicker::NextMove(Position* pos, int ply) {
+Move MovePicker::NextMove(Position* pos) {
 
     Move move;
 

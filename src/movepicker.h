@@ -54,5 +54,5 @@ public:
     int stage;
     int currentMoveStage;
     void Init(Mode mode, Move ttMove, Move firstKiller, Move secondKiller);
-    Move NextMove(Position* pos, int ply);
+    Move NextMove(Position* pos);
 };

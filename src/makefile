@@ -1,7 +1,25 @@
-SRCS=$(wildcard *.cpp)
+CXX = g++
+CXXFLAGS = -std=c++17 -O3 -mavx2 -Wall -Wextra -pedantic -flto=auto
+LDFLAGS =
 
-publius: $(SRCS)
-	g++ -o publius $(SRCS) -O3 -flto
+SRCS = $(wildcard *.cpp)
+
+OBJS = $(SRCS:.cpp=.o)
+
+TARGET = publius
+
+.PHONY: all clean
+
+all: $(TARGET)
+
+$(TARGET): $(OBJS)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJS) $(LDFLAGS)
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	- rm *.o publius
+	rm -f $(OBJS) $(TARGET)
+
+strip:
+	strip $(TARGET)

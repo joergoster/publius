@@ -3,13 +3,29 @@
 #include "types.h"
 #include "bitboard.h"
 
-// #define FAST_POPCNT
+//#define FAST_POPCNT
 // uncomment this when compiling for modern Windows systems
 // to gain a little speedup.
 
 #ifdef FAST_POPCNT
+// The below headers are generally for MSVC/Intel/various setups
+
+
+#ifdef __ANDROID__
+#include <arm_neon.h>
+#endif
+
+
+#ifdef __SSE4__
+#include <x86intrin.h>
+#elif defined(__GNUC__)
+// For GCC/Clang, the built-ins are often available without extra headers,
+// but some may still be needed depending on the version/platform.
+// We'll rely on the built-ins directly in the functions.
+#else
 #include <nmmintrin.h>
 #include <intrin.h>
+#endif
 #endif
 
 // PopCnt() - shorthand for population count -
@@ -19,7 +35,13 @@
 #ifdef FAST_POPCNT
 
 int PopCnt(Bitboard b) {
+#if defined(__GNUC__) || defined(__ANDROID__)
+    // Use GCC/Clang built-in for population count on a long long (64-bit)
+    return __builtin_popcountll(b);
+#else
+    // Fallback to intrinsic for other systems (e.g., MSVC using _mm_popcnt_u64)
     return (int)_mm_popcnt_u64(b);
+#endif
 }
 
 #else
@@ -51,9 +73,15 @@ int PopCnt(Bitboard b) {
 #ifdef FAST_POPCNT
 
 Square FirstOne(Bitboard b) {
+#if defined(__GNUC__) || defined(__ANDROID__)
+    // Use GCC/Clang built-in for count trailing zeros (CTZ) on a long long (64-bit)
+    return (Square)__builtin_ctzll(b);
+#else
+    // Fallback to intrinsic for other systems (e.g., MSVC using _BitScanForward64)
     unsigned long index;
     _BitScanForward64(&index, b);
     return (Square)index;
+#endif
 }
 
 #else

@@ -21,8 +21,6 @@
 // If AVX2 isn't available, we can still compile the scalar code 
 // (#ifndef part), and performance is still correct - just slower.
 
-#define __AVX2__
-
 #include "types.h"
 #include "piece.h"
 #include "nn.h"
@@ -134,12 +132,24 @@
     // Returns NNUE evaluation of position
     i32 Net::GetScore(i8 color) {
 
+#if defined(__AVX2__)
+        const i32 score = SumAccumulatorAVX2(color);
+#else
         i32 score = 0;
 
-        score += SumHalfAccumulator(this->accumulator[color], PARAMS.outputWeights[0]);
-        score += SumHalfAccumulator(this->accumulator[!color], PARAMS.outputWeights[1]);
+        score += SumHalfAccumulator(
+            this->accumulator[color],
+            PARAMS.outputWeights[0]
+        );
 
-        return (score / L0_SCALE + PARAMS.outputBias) * EVAL_SCALE / MUL_SCALE;
+        score += SumHalfAccumulator(
+            this->accumulator[!color],
+            PARAMS.outputWeights[1]
+        );
+#endif
+
+        return (score / L0_SCALE + PARAMS.outputBias)
+            * EVAL_SCALE / MUL_SCALE;
     }
 
     // Sums the accumulated scoes for one side
@@ -151,11 +161,17 @@
             for (size_t i = 0; i < networkWidth; ++i) // works faster for smaller nets
                 value += GetScrelu(inputs[i]) * weights[i];
         else
-            for (size_t i = 0; i < HIDDEN_SIZE; ++i) // works faster for max network size
+            for (size_t i = 0; i < HIDDEN_SIZE; ++i) // works faster for max network size (4% for hl = 256)
                 value += GetScrelu(inputs[i]) * weights[i];
 
         return value;
     };
+
+    // Sets indices for both network perspectives
+    static inline void SetIndices(i8 color, i8 type, i8 sq, int& idxW, int& idxB) {
+        idxW = Index(color, type, sq);
+        idxB = Index(!color, type, sq ^ 56);
+    }
 
     // Adds "a feature" (a piece on a square) to the accumulator
     void Net::Add(i8 color, i8 type, i8 square) {
@@ -166,26 +182,7 @@
         const auto indexBlack = Index(!color, type, square^56);
 
 #if defined(__AVX2__)
-
-        i16* __restrict a0 = &this->accumulator[0][0];
-        i16* __restrict a1 = &this->accumulator[1][0];
-        const i16* __restrict w0 = &PARAMS.inputWeights[indexWhite][0];
-        const i16* __restrict w1 = &PARAMS.inputWeights[indexBlack][0];
-
-        size_t i = 0;
-        // 16 int16 lanes per __m256i
-        for (; i + 16 <= HIDDEN_SIZE; i += 16) {
-            __m256i A0 = _mm256_loadu_si256((const __m256i*)(a0 + i));
-            __m256i W0 = _mm256_loadu_si256((const __m256i*)(w0 + i));
-            __m256i A1 = _mm256_loadu_si256((const __m256i*)(a1 + i));
-            __m256i W1 = _mm256_loadu_si256((const __m256i*)(w1 + i));
-
-            A0 = _mm256_add_epi16(A0, W0);
-            A1 = _mm256_add_epi16(A1, W1);
-
-            _mm256_storeu_si256((__m256i*)(a0 + i), A0);
-            _mm256_storeu_si256((__m256i*)(a1 + i), A1);
-        }
+        AddAVX2(indexWhite, indexBlack);
 #else
         // Update the accumulator
         if (networkWidth < HIDDEN_SIZE)
@@ -201,32 +198,14 @@
 #endif
     }
 
-    // Deletes "a feature" (a piece on a square) from the accumulator
+    // Deletes a feature (a piece on a square) from the accumulator
     void Net::Del(i8 color, i8 type, i8 square) {
 
         const auto indexWhite = Index(color, type, square);
         const auto indexBlack = Index(!color, type, square^56);
 
 #if defined(__AVX2__)
-
-        i16* __restrict a0 = &this->accumulator[0][0];
-        i16* __restrict a1 = &this->accumulator[1][0];
-        const i16* __restrict w0 = &PARAMS.inputWeights[indexWhite][0];
-        const i16* __restrict w1 = &PARAMS.inputWeights[indexBlack][0];
-
-        size_t i = 0;
-        for (; i + 16 <=networkWidth; i += 16) {
-            __m256i A0 = _mm256_loadu_si256((const __m256i*)(a0 + i));
-            __m256i W0 = _mm256_loadu_si256((const __m256i*)(w0 + i));
-            __m256i A1 = _mm256_loadu_si256((const __m256i*)(a1 + i));
-            __m256i W1 = _mm256_loadu_si256((const __m256i*)(w1 + i));
-
-            A0 = _mm256_sub_epi16(A0, W0);
-            A1 = _mm256_sub_epi16(A1, W1);
-
-            _mm256_storeu_si256((__m256i*)(a0 + i), A0);
-            _mm256_storeu_si256((__m256i*)(a1 + i), A1);
-        }
+        DelAVX2(indexWhite, indexBlack);
 #else
         if (networkWidth < HIDDEN_SIZE)
             for (size_t i = 0; i < networkWidth; ++i) { // works faster for smaller nets
@@ -241,11 +220,6 @@
 #endif
     }
 
-    static inline void SetIndices(i8 color, i8 type, i8 sq, int& idxW, int& idxB) {
-        idxW = Index(color, type, sq);
-        idxB = Index(!color, type, sq ^ 56);
-    }
-
     // a move operation performed on from and to squares at once
     // is slightly faster in AVX2 mode
     void Net::Move(i8 color, i8 type, i8 addSq, i8 subSq)
@@ -255,31 +229,7 @@
         SetIndices(color, type, subSq, subW, subB);
 
 #if defined(__AVX2__)
-        i16* __restrict a0 = &this->accumulator[0][0];
-        i16* __restrict a1 = &this->accumulator[1][0];
-        const i16* __restrict wAdd0 = &PARAMS.inputWeights[addW][0];
-        const i16* __restrict wAdd1 = &PARAMS.inputWeights[addB][0];
-        const i16* __restrict wSub0 = &PARAMS.inputWeights[subW][0];
-        const i16* __restrict wSub1 = &PARAMS.inputWeights[subB][0];
-
-        size_t i = 0;
-        for (; i + 16 <= networkWidth; i += 16) {
-            __m256i A0 = _mm256_loadu_si256((const __m256i*)(a0 + i));
-            __m256i A1 = _mm256_loadu_si256((const __m256i*)(a1 + i));
-            __m256i ADD0 = _mm256_loadu_si256((const __m256i*)(wAdd0 + i));
-            __m256i ADD1 = _mm256_loadu_si256((const __m256i*)(wAdd1 + i));
-            __m256i SUB0 = _mm256_loadu_si256((const __m256i*)(wSub0 + i));
-            __m256i SUB1 = _mm256_loadu_si256((const __m256i*)(wSub1 + i));
-
-            A0 = _mm256_add_epi16(A0, ADD0);
-            A1 = _mm256_add_epi16(A1, ADD1);
-            A0 = _mm256_sub_epi16(A0, SUB0);
-            A1 = _mm256_sub_epi16(A1, SUB1);
-
-            _mm256_storeu_si256((__m256i*)(a0 + i), A0);
-            _mm256_storeu_si256((__m256i*)(a1 + i), A1);
-        }
-
+        MoveAVX2(addW, addB, subW, subB);
 #else
         if (networkWidth < HIDDEN_SIZE)
             for (size_t i = 0; i < networkWidth; ++i) {
@@ -325,3 +275,176 @@
             this->Add(color, type, sq);
         }
     }
+
+#ifdef __AVX2__
+    // networkWidth is always a multiple of 16, so AVX2 loops need no scalar tail.
+
+    void Net::AddAVX2(int indexWhite, int indexBlack) {
+
+        i16* __restrict a0 = &this->accumulator[0][0];
+        i16* __restrict a1 = &this->accumulator[1][0];
+        const i16* __restrict w0 = &PARAMS.inputWeights[indexWhite][0];
+        const i16* __restrict w1 = &PARAMS.inputWeights[indexBlack][0];
+
+        // 16 int16 lanes per __m256i
+        for (size_t i = 0; i < networkWidth; i += 16) {
+            __m256i A0 = _mm256_loadu_si256((const __m256i*)(a0 + i));
+            __m256i W0 = _mm256_loadu_si256((const __m256i*)(w0 + i));
+            __m256i A1 = _mm256_loadu_si256((const __m256i*)(a1 + i));
+            __m256i W1 = _mm256_loadu_si256((const __m256i*)(w1 + i));
+
+            A0 = _mm256_add_epi16(A0, W0);
+            A1 = _mm256_add_epi16(A1, W1);
+
+            _mm256_storeu_si256((__m256i*)(a0 + i), A0);
+            _mm256_storeu_si256((__m256i*)(a1 + i), A1);
+        }
+    }
+
+    void Net::DelAVX2(int indexWhite, int indexBlack) {
+
+        i16* __restrict a0 = &this->accumulator[0][0];
+        i16* __restrict a1 = &this->accumulator[1][0];
+        const i16* __restrict w0 = &PARAMS.inputWeights[indexWhite][0];
+        const i16* __restrict w1 = &PARAMS.inputWeights[indexBlack][0];
+
+        for (size_t i = 0; i < networkWidth; i += 16) {
+            __m256i A0 = _mm256_loadu_si256((const __m256i*)(a0 + i));
+            __m256i W0 = _mm256_loadu_si256((const __m256i*)(w0 + i));
+            __m256i A1 = _mm256_loadu_si256((const __m256i*)(a1 + i));
+            __m256i W1 = _mm256_loadu_si256((const __m256i*)(w1 + i));
+
+            A0 = _mm256_sub_epi16(A0, W0);
+            A1 = _mm256_sub_epi16(A1, W1);
+
+            _mm256_storeu_si256((__m256i*)(a0 + i), A0);
+            _mm256_storeu_si256((__m256i*)(a1 + i), A1);
+        }
+    }
+
+    void Net::MoveAVX2(int addW, int addB, int subW, int subB) {
+
+        i16* __restrict a0 = &this->accumulator[0][0];
+        i16* __restrict a1 = &this->accumulator[1][0];
+        const i16* __restrict wAdd0 = &PARAMS.inputWeights[addW][0];
+        const i16* __restrict wAdd1 = &PARAMS.inputWeights[addB][0];
+        const i16* __restrict wSub0 = &PARAMS.inputWeights[subW][0];
+        const i16* __restrict wSub1 = &PARAMS.inputWeights[subB][0];
+
+        for (size_t i = 0; i < networkWidth; i += 16) {
+            __m256i A0 = _mm256_loadu_si256((const __m256i*)(a0 + i));
+            __m256i A1 = _mm256_loadu_si256((const __m256i*)(a1 + i));
+            __m256i ADD0 = _mm256_loadu_si256((const __m256i*)(wAdd0 + i));
+            __m256i ADD1 = _mm256_loadu_si256((const __m256i*)(wAdd1 + i));
+            __m256i SUB0 = _mm256_loadu_si256((const __m256i*)(wSub0 + i));
+            __m256i SUB1 = _mm256_loadu_si256((const __m256i*)(wSub1 + i));
+
+            A0 = _mm256_add_epi16(A0, ADD0);
+            A1 = _mm256_add_epi16(A1, ADD1);
+            A0 = _mm256_sub_epi16(A0, SUB0);
+            A1 = _mm256_sub_epi16(A1, SUB1);
+
+            _mm256_storeu_si256((__m256i*)(a0 + i), A0);
+            _mm256_storeu_si256((__m256i*)(a1 + i), A1);
+        }
+    }
+
+    static inline i32 HorizontalSum256(__m256i v) {
+
+        // Add upper 128 bits to lower 128 bits
+        __m128i sum128 = _mm_add_epi32(
+            _mm256_castsi256_si128(v),
+            _mm256_extracti128_si256(v, 1)
+        );
+
+        // Four i32 values -> one i32 value
+        sum128 = _mm_hadd_epi32(sum128, sum128);
+        sum128 = _mm_hadd_epi32(sum128, sum128);
+
+        return _mm_cvtsi128_si32(sum128);
+    }
+
+
+    // Calculates both accumulator perspectives in one pass.
+    i32 Net::SumAccumulatorAVX2(i8 color) {
+
+        const i16* __restrict inputs0 =
+            &this->accumulator[color][0];
+
+        const i16* __restrict inputs1 =
+            &this->accumulator[!color][0];
+
+        const i16* __restrict weights0 =
+            &PARAMS.outputWeights[0][0];
+
+        const i16* __restrict weights1 =
+            &PARAMS.outputWeights[1][0];
+
+        const __m256i zero = _mm256_setzero_si256();
+        const __m256i upper = _mm256_set1_epi16((i16)L0_SCALE);
+
+        // Separate accumulators reduce the dependency chain.
+        __m256i sum0Lo = _mm256_setzero_si256();
+        __m256i sum0Hi = _mm256_setzero_si256();
+        __m256i sum1Lo = _mm256_setzero_si256();
+        __m256i sum1Hi = _mm256_setzero_si256();
+
+        for (size_t i = 0; i < networkWidth; i += 16) {
+
+            // Load and clamp 16 int16 accumulator values to [0, 255].
+            __m256i x0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(inputs0 + i));
+            __m256i x1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(inputs1 + i));
+
+            x0 = _mm256_max_epi16(x0, zero);
+            x0 = _mm256_min_epi16(x0, upper);
+            x1 = _mm256_max_epi16(x1, zero);
+            x1 = _mm256_min_epi16(x1, upper);
+
+            // Output weights remain signed int16.
+            const __m256i w0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(weights0 + i));
+            const __m256i w1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(weights1 + i));
+
+            // Expand low and high groups of eight int16 values to i32.
+            const __m128i x0Low128 = _mm256_castsi256_si128(x0);
+            const __m128i x0High128 = _mm256_extracti128_si256(x0, 1);
+
+            const __m128i x1Low128 = _mm256_castsi256_si128(x1);
+            const __m128i x1High128 = _mm256_extracti128_si256(x1, 1);
+
+            const __m128i w0Low128 = _mm256_castsi256_si128(w0);
+            const __m128i w0High128 = _mm256_extracti128_si256(w0, 1);
+
+            const __m128i w1Low128 = _mm256_castsi256_si128(w1);
+            const __m128i w1High128 = _mm256_extracti128_si256(w1, 1);
+
+            __m256i x0Lo = _mm256_cvtepi16_epi32(x0Low128);
+            __m256i x0Hi = _mm256_cvtepi16_epi32(x0High128);
+
+            __m256i x1Lo = _mm256_cvtepi16_epi32(x1Low128);
+            __m256i x1Hi = _mm256_cvtepi16_epi32(x1High128);
+
+            const __m256i w0Lo = _mm256_cvtepi16_epi32(w0Low128);
+            const __m256i w0Hi = _mm256_cvtepi16_epi32(w0High128);
+
+            const __m256i w1Lo = _mm256_cvtepi16_epi32(w1Low128);
+            const __m256i w1Hi = _mm256_cvtepi16_epi32(w1High128);
+
+            // SCReLU: x^2, followed by multiplication by output weight.
+            x0Lo = _mm256_mullo_epi32(x0Lo, x0Lo);
+            x0Hi = _mm256_mullo_epi32(x0Hi, x0Hi);
+            x1Lo = _mm256_mullo_epi32(x1Lo, x1Lo);
+            x1Hi = _mm256_mullo_epi32(x1Hi, x1Hi);
+
+            sum0Lo = _mm256_add_epi32(sum0Lo, _mm256_mullo_epi32(x0Lo, w0Lo));
+            sum0Hi = _mm256_add_epi32(sum0Hi, _mm256_mullo_epi32(x0Hi, w0Hi));
+            sum1Lo = _mm256_add_epi32(sum1Lo, _mm256_mullo_epi32(x1Lo, w1Lo));
+            sum1Hi = _mm256_add_epi32(sum1Hi, _mm256_mullo_epi32(x1Hi, w1Hi));
+        }
+
+        const __m256i total0 = _mm256_add_epi32(sum0Lo, sum0Hi);
+        const __m256i total1 = _mm256_add_epi32(sum1Lo, sum1Hi);
+
+        return HorizontalSum256(total0) + HorizontalSum256(total1);
+    }
+
+#endif

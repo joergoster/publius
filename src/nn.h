@@ -16,6 +16,8 @@
 
 #pragma once
 
+#define __AVX2__
+
 #include <iostream>
 #include <algorithm>
 #include "position.h"
@@ -63,6 +65,12 @@ using i32 = int32_t;
         alignas(64) i16 accumulator[2][HIDDEN_SIZE];
         int networkWidth = HIDDEN_SIZE; // assume we are loading the biggest net available
         i32 SumHalfAccumulator(i16 inputs[HIDDEN_SIZE], i16 weights[HIDDEN_SIZE]);
+#ifdef __AVX2__
+        void AddAVX2(int indexWhite, int indexBlack);
+        void DelAVX2(int indexWhite, int indexBlack);
+        void MoveAVX2(int addW, int addB, int subW, int subB);
+        i32 SumAccumulatorAVX2(i8 color);
+#endif
     public:
         Net();
         i32 GetScore(i8 color);
